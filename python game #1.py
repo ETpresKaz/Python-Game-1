@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 
 # Initialize Pygame
 pygame.init()
@@ -13,26 +14,41 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+PURPLE = (128, 0, 128)
 
 # Initialize the screen
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Moving Dot Game with Enemies")
 
+# Load images
+spaceship_img = pygame.image.load('spaceship.png').convert_alpha()
+spaceship_img = pygame.transform.scale(spaceship_img, (40, 40))
+alien_img = pygame.image.load('alien_ship.png').convert_alpha()
+alien_img = pygame.transform.scale(alien_img, (40, 40))
+alien_img2 = pygame.image.load('alien_ship2.png').convert_alpha()
+alien_img2 = pygame.transform.scale(alien_img2, (60, 60))
+
 # Dot properties
-dot_size = 10
+dot_size = 40
 dot_x = SCREEN_WIDTH // 2
 dot_y = SCREEN_HEIGHT // 2
-dot_color = WHITE
 dot_speed = 5
+dot_angle = 0  # Initial angle
 
 # Enemy properties
-enemy_size = 20
+enemy_size = 40
 enemy_speed = 2
+purple_enemy_size = 60
+purple_enemy_spawn_rate = 25  # Points interval for spawning purple enemy
 
 # Projectile properties
-projectile_width = 5
-projectile_height = 10
+projectile_width = 3
+projectile_height = 6
 projectile_speed = 6
+blue_projectile_speed = 12
+blue_projectile_burst_count = 7
+blue_projectile_burst_interval = 15000  # 15 seconds
 
 # Initial spawn rates
 initial_enemy_spawn_rate = 2000  # milliseconds
@@ -59,7 +75,9 @@ FPS = 20  # Frames per second
 # Lists to hold enemies, projectiles, and explosions
 enemies = []
 projectiles = []
+purple_projectiles = []
 explosions = []
+purple_enemies = []
 
 # Font for displaying the score and lives
 font = pygame.font.Font(None, 36)
@@ -77,6 +95,13 @@ def spawn_enemy():
     enemy_y = random.randint(0, SCREEN_HEIGHT - enemy_size)
     enemies.append(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size))
 
+# Function to spawn a new purple enemy
+def spawn_purple_enemy():
+    enemy_x = random.randint(0, SCREEN_WIDTH - purple_enemy_size)
+    enemy_y = random.randint(0, SCREEN_HEIGHT - purple_enemy_size)
+    purple_enemies.append(pygame.Rect(enemy_x, enemy_y, purple_enemy_size, purple_enemy_size))
+    pygame.time.set_timer(pygame.USEREVENT + 4, blue_projectile_burst_interval, loops=blue_projectile_burst_count)
+
 # Function to spawn a new projectile from a random enemy
 def spawn_projectile():
     if enemies:
@@ -90,18 +115,33 @@ def spawn_projectile():
             'direction': direction
         })
 
+# Function to spawn a new blue projectile from a purple enemy
+def spawn_blue_projectile():
+    if purple_enemies:
+        enemy = random.choice(purple_enemies)
+        direction = (dot_x - enemy.x, dot_y - enemy.y)
+        magnitude = math.sqrt(direction[0]**2 + direction[1]**2)
+        direction = (direction[0] / magnitude, direction[1] / magnitude)
+        projectile_x = enemy.x + purple_enemy_size // 2
+        projectile_y = enemy.y + purple_enemy_size // 2
+        purple_projectiles.append({
+            'rect': pygame.Rect(projectile_x, projectile_y, projectile_width, projectile_height),
+            'direction': direction
+        })
+
 # Function to reset the game
 def reset_game():
-    global dot_x, dot_y, dot_color, game_over, enemies, projectiles, score, lives, explosions, current_enemy_spawn_rate, current_projectile_spawn_rate
+    global dot_x, dot_y, game_over, enemies, projectiles, purple_projectiles, score, lives, explosions, purple_enemies, current_enemy_spawn_rate, current_projectile_spawn_rate
     dot_x = SCREEN_WIDTH // 2
     dot_y = SCREEN_HEIGHT // 2
-    dot_color = WHITE
     game_over = False
     enemies = []
     projectiles = []
+    purple_projectiles = []
     score = 0
     lives = 3
     explosions = []
+    purple_enemies = []
     current_enemy_spawn_rate = initial_enemy_spawn_rate
     current_projectile_spawn_rate = initial_projectile_spawn_rate
     pygame.time.set_timer(pygame.USEREVENT + 1, current_enemy_spawn_rate)
@@ -151,6 +191,24 @@ def draw_start_screen():
     screen.blit(start_text, (button_x + (button_width - start_text.get_width()) // 2, button_y + (button_height - start_text.get_height()) // 2))
     pygame.display.flip()
 
+# Function to rotate an image
+def rotate_image(image, angle):
+    return pygame.transform.rotate(image, angle)
+
+# Function to draw a laser
+def draw_laser(screen, color, rect, direction):
+    # Draw the head of the laser
+    pygame.draw.rect(screen, color, rect)
+
+    # Draw the tail of the laser with a fading effect
+    tail_length = 5
+    for i in range(tail_length):
+        tail_rect = rect.copy()
+        tail_rect.x -= direction[0] * (i + 1) * 2
+        tail_rect.y -= direction[1] * (i + 1) * 2
+        tail_color = (color[0], color[1], color[2], max(0, 255 - i * 50))
+        pygame.draw.rect(screen, tail_color, tail_rect, 1)
+
 # Main game loop
 running = True
 show_start_screen = True
@@ -191,19 +249,26 @@ while running:
                 current_projectile_spawn_rate = max(100, int(current_projectile_spawn_rate / projectile_multiplier))
                 pygame.time.set_timer(pygame.USEREVENT + 1, current_enemy_spawn_rate)
                 pygame.time.set_timer(pygame.USEREVENT + 2, current_projectile_spawn_rate)
+            if score % purple_enemy_spawn_rate == 0:
+                spawn_purple_enemy()
+        elif event.type == pygame.USEREVENT + 4:
+            spawn_blue_projectile()
     
     keys = pygame.key.get_pressed()
     if keys[pygame.K_a]:
         dot_x -= dot_speed
+        dot_angle = 90 if not (keys[pygame.K_w] or keys[pygame.K_s]) else 135 if keys[pygame.K_w] else 45
     if keys[pygame.K_d]:
         dot_x += dot_speed
+        dot_angle = 270 if not (keys[pygame.K_w] or keys[pygame.K_s]) else 225 if keys[pygame.K_w] else 315
     if keys[pygame.K_w]:
         dot_y -= dot_speed
+        dot_angle = 0 if not (keys[pygame.K_a] or keys[pygame.K_d]) else 45 if keys[pygame.K_d] else 315
     if keys[pygame.K_s]:
         dot_y += dot_speed
+        dot_angle = 180 if not (keys[pygame.K_a] or keys[pygame.K_d]) else 135 if keys[pygame.K_a] else 225
     if keys[pygame.K_e]:
-            dot_color = change_dot_color()
-
+        dot_color = change_dot_color()
     
     if dot_x < 0 or dot_x > SCREEN_WIDTH - dot_size:
         dot_color = change_dot_color()
@@ -213,7 +278,8 @@ while running:
         dot_y = max(0, min(dot_y, SCREEN_HEIGHT - dot_size))
 
     dot_rect = pygame.Rect(dot_x, dot_y, dot_size, dot_size)
-    pygame.draw.rect(screen, dot_color, dot_rect)
+    rotated_spaceship = rotate_image(spaceship_img, dot_angle)
+    screen.blit(rotated_spaceship, (dot_x, dot_y))
 
     for projectile in projectiles[:]:
         direction_x, direction_y = projectile['direction']
@@ -231,7 +297,25 @@ while running:
               projectile['rect'].y < 0 or projectile['rect'].y > SCREEN_HEIGHT):
             projectiles.remove(projectile)
         else:
-            pygame.draw.rect(screen, GREEN, projectile['rect'])
+            draw_laser(screen, GREEN, projectile['rect'], projectile['direction'])
+    
+    for blue_projectile in purple_projectiles[:]:
+        direction_x, direction_y = blue_projectile['direction']
+        blue_projectile['rect'].x += direction_x * blue_projectile_speed
+        blue_projectile['rect'].y += direction_y * blue_projectile_speed
+
+        if blue_projectile['rect'].colliderect(dot_rect):
+            lives -= 1
+            purple_projectiles.remove(blue_projectile)
+            explosions.append(Explosion(dot_x, dot_y))
+            if lives == 0:
+                game_over = True
+                break
+        elif (blue_projectile['rect'].x < 0 or blue_projectile['rect'].x > SCREEN_WIDTH or
+              blue_projectile['rect'].y < 0 or blue_projectile['rect'].y > SCREEN_HEIGHT):
+            purple_projectiles.remove(blue_projectile)
+        else:
+            draw_laser(screen, BLUE, blue_projectile['rect'], blue_projectile['direction'])
     
     for explosion in explosions[:]:
         if not explosion.update():
@@ -240,7 +324,10 @@ while running:
             explosion.draw(screen)
 
     for enemy in enemies:
-        pygame.draw.rect(screen, RED, enemy)
+        screen.blit(alien_img, enemy)
+    
+    for purple_enemy in purple_enemies:
+        screen.blit(alien_img2, purple_enemy)
     
     score_text = font.render(f"Score: {score}", True, WHITE)
     lives_text = font.render(f"Lives: {lives}", True, WHITE)
